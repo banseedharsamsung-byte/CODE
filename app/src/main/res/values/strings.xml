@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">UI Element Test App</string>
+    <string name="select_image">Select Image</string>
+    <string name="test_detection">Test Detection</string>
+    <string name="no_image_selected">No image selected</string>
+    <string name="detecting">Detecting...</string>
+    <string name="detection_complete">Detection Complete</string>
+</resources>
+
