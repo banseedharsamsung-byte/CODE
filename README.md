@@ -172,6 +172,12 @@ Training outputs are saved to the `output_dir` specified in config:
 - Model checkpoints (every `save_steps`)
 - Final model weights
 - Training logs (TensorBoard compatible)
+- **Visualization samples** (in `visualizations/` subdirectory):
+  - Sample images with bounding boxes drawn
+  - Green boxes: Original YOLO coordinates
+  - Red boxes: Converted Florence-2 coordinates
+  - Both should overlap if conversion is correct
+  - Default: 10 samples per split (train/val)
 
 ## Multi-GPU Training
 

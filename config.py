@@ -76,6 +76,11 @@ class TrainingConfig:
                                         # Note: Model parallelism splits model across GPUs
                                         #       Data parallelism replicates model on each GPU
     
+    # Visualization settings
+    save_visualizations: bool = True  # Save visualization samples after dataset creation
+    num_visualization_samples: int = 10  # Number of samples to visualize per split
+    visualization_output_dir: Optional[str] = None  # Directory for visualizations (defaults to output_dir)
+    
     def __post_init__(self):
         """Initialize LoRA config if not provided."""
         if self.lora is None:

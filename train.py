@@ -243,17 +243,16 @@ def main(config: TrainingConfig):
         target_modules=config.lora.target_modules
     )
     
-    # Create datasets
-    logger.info("Creating datasets...")
+    # Create datasets (with detailed logging)
     train_dataset, val_dataset = create_dataset(
         config.data_yaml_path,
         validation_split=config.validation_split,
         seed=config.seed,
+        show_progress=True,
+        save_visualizations=config.save_visualizations,
+        num_visualization_samples=config.num_visualization_samples,
+        visualization_output_dir=config.visualization_output_dir or config.output_dir
     )
-    
-    logger.info(f"Train dataset size: {len(train_dataset)}")
-    if val_dataset is not None:
-        logger.info(f"Validation dataset size: {len(val_dataset)}")
     
     # Create data collator
     data_collator = Florence2DataCollator(processor)
