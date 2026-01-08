@@ -4,7 +4,7 @@ Implements on-the-fly dataset generation without intermediate file conversion.
 """
 import yaml
 from pathlib import Path
-from typing import Dict, Iterator, Tuple, List, Optional
+from typing import Dict, Iterator, Tuple, List, Optional, Union
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from datasets import Dataset
@@ -44,7 +44,7 @@ def parse_data_yaml(yaml_path: str) -> Tuple[Dict[int, str], List[str], List[str
     
     logger.info(f"Found {len(class_id_to_name)} classes: {list(class_id_to_name.values())}")
     
-    def _normalize_dirs(value: Optional[str | List[str]]) -> List[str]:
+    def _normalize_dirs(value: Optional[Union[str, List[str]]]) -> List[str]:
         """Helper to normalize string or list of strings into a list."""
         if value is None:
             return []

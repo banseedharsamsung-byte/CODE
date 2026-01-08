@@ -23,6 +23,10 @@ florence_finetune/
 
 ## Installation
 
+**Requirements:**
+- Python 3.8 or higher
+- CUDA-capable GPU (recommended)
+
 1. Clone or download this repository
 
 2. Install dependencies:
