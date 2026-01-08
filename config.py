@@ -70,6 +70,12 @@ class TrainingConfig:
     # Memory optimization
     freeze_vision_tower: bool = False  # Freeze vision tower to save VRAM
     
+    # Multi-GPU settings
+    use_model_parallelism: bool = False  # If True, use device_map="auto" for model parallelism
+                                        # If False, use data parallelism (DDP) - recommended for training
+                                        # Note: Model parallelism splits model across GPUs
+                                        #       Data parallelism replicates model on each GPU
+    
     def __post_init__(self):
         """Initialize LoRA config if not provided."""
         if self.lora is None:

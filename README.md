@@ -173,6 +173,64 @@ Training outputs are saved to the `output_dir` specified in config:
 - Final model weights
 - Training logs (TensorBoard compatible)
 
+## Multi-GPU Training
+
+The pipeline supports two multi-GPU strategies:
+
+### 1. Data Parallelism (DDP) - Recommended for Training
+
+**Default behavior**: When launched with multiple GPUs, the Trainer automatically uses Distributed Data Parallelism (DDP).
+
+**How to use:**
+```bash
+# Using torchrun (PyTorch native)
+torchrun --nproc_per_node=4 train.py
+
+# Using accelerate (recommended)
+accelerate launch --num_processes=4 train.py
+
+# Or configure accelerate first
+accelerate config
+accelerate launch train.py
+```
+
+**Benefits:**
+- Each GPU gets a copy of the model
+- Data is split across GPUs
+- Gradients are synchronized
+- Faster training with linear scaling
+- Works seamlessly with Hugging Face Trainer
+
+**Configuration:**
+- Set `use_model_parallelism=False` in config (default)
+- Effective batch size = `per_device_train_batch_size × num_gpus × gradient_accumulation_steps`
+
+### 2. Model Parallelism (Device Map)
+
+**For very large models that don't fit on a single GPU:**
+
+```python
+config.use_model_parallelism = True
+```
+
+**How it works:**
+- Model layers are split across multiple GPUs
+- Each GPU holds different parts of the model
+- Useful when model is too large for single GPU
+- **Note**: Not compatible with Trainer's DDP - use single process
+
+**Limitations:**
+- Slower than DDP for training
+- More complex communication patterns
+- Best for inference or when model doesn't fit on one GPU
+
+### Multi-GPU Best Practices
+
+1. **Use DDP for training** (default): Faster and scales better
+2. **Adjust batch size**: With 4 GPUs, `per_device_train_batch_size=2` gives effective batch size of 8
+3. **Gradient accumulation**: Use to simulate larger batch sizes without OOM
+4. **Learning rate scaling**: Consider scaling LR with number of GPUs (e.g., `lr = base_lr × num_gpus`)
+
 ## Memory Optimization
 
 For limited VRAM scenarios:
@@ -181,6 +239,7 @@ For limited VRAM scenarios:
 2. **Reduce Batch Size**: Lower `per_device_train_batch_size`
 3. **Increase Gradient Accumulation**: Increase `gradient_accumulation_steps` to maintain effective batch size
 4. **Use FP16**: Ensure `fp16=True` (default)
+5. **Use Model Parallelism**: If model doesn't fit, set `use_model_parallelism=True`
 
 ## Troubleshooting
 

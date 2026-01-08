@@ -78,7 +78,8 @@ class Florence2DataCollator:
 
 def load_model_and_processor(
     model_path: str,
-    freeze_vision_tower: bool = False
+    freeze_vision_tower: bool = False,
+    use_model_parallelism: bool = False
 ):
     """
     Load Florence-2 model and processor from local directory.
@@ -86,11 +87,22 @@ def load_model_and_processor(
     Args:
         model_path: Local path to Florence-2 model directory
         freeze_vision_tower: Whether to freeze vision tower parameters
+        use_model_parallelism: If True, use device_map="auto" for model parallelism.
+                              If False (default), let Trainer handle device placement for data parallelism.
         
     Returns:
         Tuple of (model, processor)
     """
     logger.info(f"Loading model and processor from {model_path}")
+    
+    # Check for multi-GPU setup
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    if num_gpus > 1:
+        logger.info(f"Detected {num_gpus} GPUs")
+        if use_model_parallelism:
+            logger.info("Using model parallelism (device_map='auto')")
+        else:
+            logger.info("Using data parallelism (Trainer will handle DDP)")
     
     # Load processor
     processor = AutoProcessor.from_pretrained(
@@ -99,12 +111,28 @@ def load_model_and_processor(
     )
     
     # Load model
+    # For data parallelism (DDP), don't use device_map - Trainer handles it
+    # For model parallelism, use device_map="auto" to split model across GPUs
+    model_kwargs = {
+        'trust_remote_code': True,
+        'torch_dtype': torch.float16 if torch.cuda.is_available() else torch.float32,
+    }
+    
+    if use_model_parallelism and torch.cuda.is_available():
+        model_kwargs['device_map'] = "auto"
+    elif torch.cuda.is_available() and not use_model_parallelism:
+        # For data parallelism, place model on first GPU initially
+        # Trainer will replicate it across GPUs
+        model_kwargs['device_map'] = None
+    
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
-        trust_remote_code=True,
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-        device_map="auto" if torch.cuda.is_available() else None
+        **model_kwargs
     )
+    
+    # If not using device_map, manually move to GPU for data parallelism
+    if not use_model_parallelism and torch.cuda.is_available():
+        model = model.cuda()
     
     # Freeze vision tower if requested (for memory optimization)
     if freeze_vision_tower:
@@ -202,7 +230,8 @@ def main(config: TrainingConfig):
     # Load model and processor
     model, processor = load_model_and_processor(
         config.model_path,
-        freeze_vision_tower=config.freeze_vision_tower
+        freeze_vision_tower=config.freeze_vision_tower,
+        use_model_parallelism=config.use_model_parallelism
     )
     
     # Apply LoRA
@@ -230,6 +259,14 @@ def main(config: TrainingConfig):
     data_collator = Florence2DataCollator(processor)
     
     # Setup training arguments
+    # Note: Hugging Face Trainer automatically detects and uses multiple GPUs
+    # when launched with torchrun or accelerate. It uses DistributedDataParallel (DDP)
+    # for data parallelism, which replicates the model on each GPU and splits the data.
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    if num_gpus > 1 and not config.use_model_parallelism:
+        logger.info(f"Multi-GPU training detected: {num_gpus} GPUs will be used with DDP")
+        logger.info(f"Effective batch size: {config.per_device_train_batch_size * num_gpus * config.gradient_accumulation_steps}")
+    
     training_args = TrainingArguments(
         output_dir=config.output_dir,
         per_device_train_batch_size=config.per_device_train_batch_size,
@@ -252,6 +289,8 @@ def main(config: TrainingConfig):
         load_best_model_at_end=True if val_dataset is not None and config.eval_steps else False,
         metric_for_best_model="loss" if val_dataset is not None else None,
         greater_is_better=False,
+        # DDP settings (automatically handled by Trainer when using torchrun/accelerate)
+        ddp_find_unused_parameters=False,  # Set to True if you encounter DDP errors
     )
     
     # Create trainer
