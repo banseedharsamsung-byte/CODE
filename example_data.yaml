@@ -1,0 +1,35 @@
+# Example data.yaml file for YOLO dataset
+# This file should be placed in your dataset directory
+
+# Explicit train/val image directory lists.
+# Each directory MUST contain a matching `labels/` directory at the same level.
+#
+# Example structure for `/dir1/train/images/`:
+#   /dir1/train/images/xxx.jpg
+#   /dir1/train/labels/xxx.txt   # same stem `xxx`
+
+train:
+  - /dir1/train/images/
+  - /dir2/train/images/
+
+val:
+  - /dir1/val/images/
+  - /dir2/val/images/
+
+# Class names mapping (class_id: class_name)
+names:
+  0: Subscription
+  1: Sign-in
+  2: Discount/Coupon
+  3: Survey
+  4: Cookies
+  5: Error
+  6: Payment
+  7: Install/Download
+  8: Notifications
+  9: Help
+  10: Open-in-app
+  11: Confirmation
+  12: Advertisement
+  13: Unknown
+
