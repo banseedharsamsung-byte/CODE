@@ -40,7 +40,6 @@ class TrainingConfig:
     gradient_accumulation_steps: int = 4  # Gradient accumulation steps
     learning_rate: float = 5e-5  # Learning rate
     num_train_epochs: int = 3  # Number of training epochs
-    max_steps: Optional[int] = None  # Maximum training steps (overrides epochs if set)
     
     # Precision
     fp16: bool = True  # Use FP16 mixed precision

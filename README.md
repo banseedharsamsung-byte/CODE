@@ -161,18 +161,75 @@ config = TrainingConfig(
 main(config)
 ```
 
-## Coordinate Conversion
+## Dataset Format for LoRA Training
+
+The pipeline automatically converts YOLO format to Florence-2 format for LoRA training. The final dataset used for training has the following structure:
+
+### Dataset Structure
+
+Each sample in the training dataset is a dictionary with two keys:
+
+```python
+{
+    'image': PIL.Image,  # PIL Image object
+    'text': str          # Florence-2 formatted prompt string
+}
+```
+
+### Text Format (Florence-2 Prompt)
+
+The `text` field contains a Florence-2 formatted prompt string for object detection:
+
+**Format**: `<OD>class_name<loc_y1><loc_x1><loc_y2><loc_x2>class_name<loc_y1><loc_x1><loc_y2><loc_x2>...`
+
+**Example**:
+```
+<OD>Subscription<loc_100><loc_200><loc_300><loc_400>Sign-in<loc_150><loc_250><loc_350><loc_450>
+```
+
+**Components**:
+- `<OD>`: Object Detection task token (required at the start)
+- `class_name`: Class name from your data.yaml (e.g., "Subscription", "Sign-in")
+- `<loc_y1><loc_x1><loc_y2><loc_x2>`: Bounding box coordinates in Florence-2 format (0-999 range)
+  - `y1, x1`: Top-left corner coordinates
+  - `y2, x2`: Bottom-right corner coordinates
+
+**Multiple Objects**: For images with multiple objects, the format repeats: `class_name<loc_y1><loc_x1><loc_y2><loc_x2>` for each object.
+
+### Image Format
+
+- **Type**: PIL Image object
+- **Mode**: RGB (automatically converted if needed)
+- **Size**: Original image dimensions (no resizing during dataset creation)
+
+### Coordinate Conversion
 
 The pipeline automatically converts YOLO format to Florence-2 format:
 
 **YOLO Format**: Normalized `[cx, cy, w, h]` (0-1 range)
 **Florence-2 Format**: Absolute `[y1, x1, y2, x2]` (0-999 range)
 
-The conversion:
-1. Converts normalized coordinates to pixel coordinates
-2. Calculates absolute corner coordinates
+The conversion process:
+1. Converts normalized YOLO coordinates to pixel coordinates
+2. Calculates absolute corner coordinates (top-left and bottom-right)
 3. Scales to Florence-2's 0-999 coordinate system
 4. Formats as: `<OD>class_name<loc_y1><loc_x1><loc_y2><loc_x2>...`
+
+### Dataset Verification
+
+During training initialization, the pipeline automatically prints 10 sample entries from the training dataset and 5 from the validation dataset (if available) for verification. This helps ensure the data format is correct before training begins.
+
+**Example output**:
+```
+================================================================================
+Verification: Printing 10 sample(s) from training dataset
+================================================================================
+
+--- Sample 1/10 ---
+Image: (1920, 1080) (width x height), mode: RGB
+Text: <OD>Subscription<loc_100><loc_200><loc_300><loc_400>Sign-in<loc_150><loc_250><loc_350><loc_450>
+...
+```
 
 ## Output
 

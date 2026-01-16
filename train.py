@@ -189,6 +189,53 @@ def setup_lora(
     return model
 
 
+def print_dataset_samples(dataset: Dataset, num_samples: int = 10, split_name: str = "training"):
+    """
+    Print sample entries from the dataset for verification.
+    
+    Args:
+        dataset: The dataset to print samples from
+        num_samples: Number of samples to print (default: 10)
+        split_name: Name of the dataset split (for logging)
+    """
+    logger.info("="*80)
+    logger.info(f"Verification: Printing {num_samples} sample(s) from {split_name} dataset")
+    logger.info("="*80)
+    
+    # Get actual number of samples to print (don't exceed dataset size)
+    num_to_print = min(num_samples, len(dataset))
+    
+    for i in range(num_to_print):
+        sample = dataset[i]
+        logger.info(f"\n--- Sample {i+1}/{num_to_print} ---")
+        
+        # Print image info
+        if 'image' in sample:
+            img = sample['image']
+            if isinstance(img, Image.Image):
+                logger.info(f"Image: {img.size} (width x height), mode: {img.mode}")
+            else:
+                logger.info(f"Image: {type(img)}")
+        
+        # Print text/prompt
+        if 'text' in sample:
+            text = sample['text']
+            # Truncate very long texts for readability
+            if len(text) > 500:
+                logger.info(f"Text (truncated): {text[:500]}...")
+            else:
+                logger.info(f"Text: {text}")
+        
+        # Print any other keys
+        other_keys = [k for k in sample.keys() if k not in ['image', 'text']]
+        if other_keys:
+            logger.info(f"Other keys: {other_keys}")
+    
+    logger.info("\n" + "="*80)
+    logger.info(f"Dataset verification complete. Total {split_name} samples: {len(dataset)}")
+    logger.info("="*80 + "\n")
+
+
 def compute_metrics(eval_pred):
     """
     Compute metrics for evaluation.
@@ -255,6 +302,11 @@ def main(config: TrainingConfig):
         num_preprocessing_workers=config.num_preprocessing_workers,
     )
     
+    # Print sample dataset entries for verification
+    print_dataset_samples(train_dataset, num_samples=10, split_name="training")
+    if val_dataset is not None:
+        print_dataset_samples(val_dataset, num_samples=5, split_name="validation")
+    
     # Create data collator
     data_collator = Florence2DataCollator(processor)
     
@@ -267,31 +319,42 @@ def main(config: TrainingConfig):
         logger.info(f"Multi-GPU training detected: {num_gpus} GPUs will be used with DDP")
         logger.info(f"Effective batch size: {config.per_device_train_batch_size * num_gpus * config.gradient_accumulation_steps}")
     
-    training_args = TrainingArguments(
-        output_dir=config.output_dir,
-        per_device_train_batch_size=config.per_device_train_batch_size,
-        gradient_accumulation_steps=config.gradient_accumulation_steps,
-        learning_rate=config.learning_rate,
-        num_train_epochs=config.num_train_epochs,
-        max_steps=config.max_steps,
-        fp16=config.fp16 and torch.cuda.is_available(),
-        bf16=config.bf16 and torch.cuda.is_available(),
-        warmup_steps=config.warmup_steps,
-        weight_decay=config.weight_decay,
-        logging_steps=config.logging_steps,
-        save_steps=config.save_steps,
-        eval_steps=config.eval_steps,
-        save_total_limit=config.save_total_limit,
-        seed=config.seed,
-        dataloader_num_workers=config.dataloader_num_workers,
-        remove_unused_columns=config.remove_unused_columns,
-        report_to="tensorboard" if os.path.exists(config.output_dir) else None,
-        load_best_model_at_end=True if val_dataset is not None and config.eval_steps else False,
-        metric_for_best_model="loss" if val_dataset is not None else None,
-        greater_is_better=False,
+    # Setup training arguments
+    # Note: Hugging Face Trainer automatically detects and uses multiple GPUs
+    # when launched with torchrun or accelerate. It uses DistributedDataParallel (DDP)
+    # for data parallelism, which replicates the model on each GPU and splits the data.
+    training_args_dict = {
+        "output_dir": config.output_dir,
+        "per_device_train_batch_size": config.per_device_train_batch_size,
+        "gradient_accumulation_steps": config.gradient_accumulation_steps,
+        "learning_rate": config.learning_rate,
+        "num_train_epochs": config.num_train_epochs,
+        "fp16": config.fp16 and torch.cuda.is_available(),
+        "bf16": config.bf16 and torch.cuda.is_available(),
+        "warmup_steps": config.warmup_steps,
+        "weight_decay": config.weight_decay,
+        "logging_steps": config.logging_steps,
+        "save_steps": config.save_steps,
+        "save_total_limit": config.save_total_limit,
+        "seed": config.seed,
+        "dataloader_num_workers": config.dataloader_num_workers,
+        "remove_unused_columns": config.remove_unused_columns,
+        "report_to": "tensorboard" if os.path.exists(config.output_dir) else None,
+        "greater_is_better": False,
         # DDP settings (automatically handled by Trainer when using torchrun/accelerate)
-        ddp_find_unused_parameters=False,  # Set to True if you encounter DDP errors
-    )
+        "ddp_find_unused_parameters": False,  # Set to True if you encounter DDP errors
+    }
+    
+    # Only add eval_steps if it's not None
+    if config.eval_steps is not None:
+        training_args_dict["eval_steps"] = config.eval_steps
+        training_args_dict["load_best_model_at_end"] = True if val_dataset is not None else False
+        training_args_dict["metric_for_best_model"] = "loss" if val_dataset is not None else None
+    else:
+        training_args_dict["load_best_model_at_end"] = False
+        training_args_dict["metric_for_best_model"] = None
+    
+    training_args = TrainingArguments(**training_args_dict)
     
     # Create trainer
     trainer = Trainer(
