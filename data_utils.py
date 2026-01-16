@@ -11,6 +11,7 @@ from datasets import Dataset
 import logging
 from tqdm import tqdm
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 import random
 
 # Set up logging
@@ -351,6 +352,7 @@ def yolo_to_florence_generator(
     data_yaml_path: str,
     split: str = "train",
     show_progress: bool = True,
+    num_workers: int = 0,
 ) -> Iterator[Dict]:
     """
     Generator function that yields Florence-2 formatted samples from YOLO dataset.
@@ -362,6 +364,7 @@ def yolo_to_florence_generator(
         data_yaml_path: Path to data.yaml file
         split: Which split to load: "train", "val", or "all"
         show_progress: Whether to show progress bars
+        num_workers: Number of parallel workers for image loading (0/1 = no parallelism)
         
     Yields:
         Dictionary with 'image' (PIL Image) and 'text' (prompt string) keys
@@ -381,6 +384,8 @@ def yolo_to_florence_generator(
         raise ValueError(f"No image directories found for split='{split}' in {data_yaml_path}")
 
     logger.info(f"Processing {split} split: {len(image_dirs)} directory(ies)")
+    if num_workers and num_workers > 1:
+        logger.info(f"Using {num_workers} parallel workers for image loading")
     
     # Statistics tracking
     total_images = 0
@@ -424,47 +429,99 @@ def yolo_to_florence_generator(
         ]
         
         logger.info(f"  Found {len(image_files)} image files")
-        
-        # Process images with progress bar
-        file_iterator = tqdm(image_files, desc=f"  Converting images", leave=False, disable=not show_progress) if show_progress else image_files
-        
-        for image_file in file_iterator:
-            # Load image and ensure RGB format
-            try:
-                image = Image.open(image_file).convert('RGB')
-                img_width, img_height = image.size
-            except Exception as e:
-                logger.warning(f"Failed to load image {image_file}: {e}")
-                skipped_errors += 1
-                continue
-            
-            # Find corresponding label file
-            label_file = labels_path / f"{image_file.stem}.txt"
-            
-            # Parse YOLO annotations
-            annotations = parse_yolo_label(label_file)
-            
-            # Skip images without annotations
-            if not annotations:
-                skipped_no_labels += 1
-                continue
-            
-            # Count classes
-            for class_id, _, _, _, _ in annotations:
-                class_counts[class_id] += 1
-                total_annotations += 1
-            
-            total_images += 1
-            
-            # Generate Florence-2 prompt
-            prompt = generate_florence_prompt(
-                annotations, class_id_to_name, img_width, img_height
+
+        # Single-threaded processing (with detailed stats and per-file progress)
+        if not num_workers or num_workers <= 1:
+            file_iterator = tqdm(
+                image_files,
+                desc=f"  Converting images",
+                leave=False,
+                disable=not show_progress,
+            ) if show_progress else image_files
+
+            for image_file in file_iterator:
+                # Load image and ensure RGB format
+                try:
+                    image = Image.open(image_file).convert('RGB')
+                    img_width, img_height = image.size
+                except Exception as e:
+                    logger.warning(f"Failed to load image {image_file}: {e}")
+                    skipped_errors += 1
+                    continue
+                
+                # Find corresponding label file
+                label_file = labels_path / f"{image_file.stem}.txt"
+                
+                # Parse YOLO annotations
+                annotations = parse_yolo_label(label_file)
+                
+                # Skip images without annotations
+                if not annotations:
+                    skipped_no_labels += 1
+                    continue
+                
+                # Count classes
+                for class_id, _, _, _, _ in annotations:
+                    class_counts[class_id] += 1
+                    total_annotations += 1
+                
+                total_images += 1
+                
+                # Generate Florence-2 prompt
+                prompt = generate_florence_prompt(
+                    annotations, class_id_to_name, img_width, img_height
+                )
+                
+                yield {
+                    'image': image,
+                    'text': prompt
+                }
+        else:
+            # Multi-threaded processing using ThreadPoolExecutor (IO-bound speedup)
+            def _process_single_image(args):
+                image_path, labels_root, class_map = args
+                try:
+                    image = Image.open(image_path).convert('RGB')
+                    img_width, img_height = image.size
+                except Exception as e:
+                    logger.warning(f"Failed to load image {image_path}: {e}")
+                    return None
+                
+                label_file = labels_root / f"{image_path.stem}.txt"
+                annotations = parse_yolo_label(label_file)
+                if not annotations:
+                    return None
+                
+                prompt = generate_florence_prompt(
+                    annotations, class_map, img_width, img_height
+                )
+                return {
+                    'image': image,
+                    'text': prompt,
+                }
+
+            args_iter = (
+                (img_path, labels_path, class_id_to_name)
+                for img_path in image_files
             )
-            
-            yield {
-                'image': image,
-                'text': prompt
-            }
+
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                results_iter = executor.map(_process_single_image, args_iter)
+                wrapped_iter = tqdm(
+                    results_iter,
+                    desc="  Converting images (multi-worker)",
+                    leave=False,
+                    total=len(image_files),
+                    disable=not show_progress,
+                ) if show_progress else results_iter
+
+                for result in wrapped_iter:
+                    if result is None:
+                        continue
+                    # NOTE: For simplicity, detailed per-class stats are not
+                    # maintained in multi-worker mode.
+                    total_images += 1
+                    yield result
     
     # Log summary statistics
     logger.info(f"\n{'='*60}")
@@ -616,7 +673,8 @@ def create_dataset(
     show_progress: bool = True,
     save_visualizations: bool = True,
     num_visualization_samples: int = 10,
-    visualization_output_dir: Optional[str] = None
+    visualization_output_dir: Optional[str] = None,
+    num_preprocessing_workers: int = 0,
 ) -> Tuple[Dataset, Dataset]:
     """
     Create Hugging Face datasets for training and validation.
@@ -629,6 +687,7 @@ def create_dataset(
         save_visualizations: Whether to save visualization samples
         num_visualization_samples: Number of samples to visualize (per split)
         visualization_output_dir: Directory to save visualizations (defaults to output_dir)
+        num_preprocessing_workers: Number of parallel workers for data preprocessing (0/1 = no parallelism)
         
     Returns:
         Tuple of (train_dataset, val_dataset)
@@ -648,6 +707,7 @@ def create_dataset(
             "data_yaml_path": data_yaml_path,
             "split": "train",
             "show_progress": show_progress,
+            "num_workers": num_preprocessing_workers,
         },
     )
     logger.info(f"✓ Training dataset created: {len(train_dataset)} samples")
@@ -661,6 +721,7 @@ def create_dataset(
                 "data_yaml_path": data_yaml_path,
                 "split": "val",
                 "show_progress": show_progress,
+                "num_workers": num_preprocessing_workers,
             },
         )
         logger.info(f"✓ Validation dataset created: {len(val_dataset)} samples")

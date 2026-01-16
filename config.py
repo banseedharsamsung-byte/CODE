@@ -63,6 +63,7 @@ class TrainingConfig:
     seed: int = 42  # Random seed
     dataloader_num_workers: int = 4  # Number of dataloader workers
     remove_unused_columns: bool = False  # Keep all columns in dataset
+    num_preprocessing_workers: int = 0  # Number of parallel workers for data preprocessing (0/1 = no parallelism)
     
     # LoRA configuration
     lora: LoRAConfig = None

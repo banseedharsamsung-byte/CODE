@@ -125,6 +125,10 @@ Edit `config.py` to customize training parameters:
   - `gradient_accumulation_steps`: Gradient accumulation (default: 4)
   - `learning_rate`: Learning rate (default: 5e-5)
   - `num_train_epochs`: Number of epochs (default: 3)
+  - `dataloader_num_workers`: PyTorch DataLoader workers for training (default: 4)
+  - `num_preprocessing_workers`: Parallel workers for **offline data preprocessing** (YOLO → Florence conversion).
+    - `0` or `1`: single-threaded (default, more detailed stats/logging)
+    - `>1`: uses a thread pool to load/convert images in parallel (good speedup on IO-bound datasets)
 - **Memory Optimization**:
   - `freeze_vision_tower`: Freeze vision tower to save VRAM (default: False)
 

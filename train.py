@@ -251,7 +251,8 @@ def main(config: TrainingConfig):
         show_progress=True,
         save_visualizations=config.save_visualizations,
         num_visualization_samples=config.num_visualization_samples,
-        visualization_output_dir=config.visualization_output_dir or config.output_dir
+        visualization_output_dir=config.visualization_output_dir or config.output_dir,
+        num_preprocessing_workers=config.num_preprocessing_workers,
     )
     
     # Create data collator
