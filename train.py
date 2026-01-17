@@ -30,6 +30,11 @@ class Florence2DataCollator:
     """
     Data collator for Florence-2 that handles image and text batching.
     Uses the processor to pad and tokenize batches.
+    
+    For training, we need to:
+    1. Process images with the input prompt "<OD>" (task token only)
+    2. Tokenize the target text separately (full sequence with class names and locations)
+    3. Combine them appropriately for causal language modeling
     """
     def __init__(self, processor):
         self.processor = processor
@@ -40,30 +45,50 @@ class Florence2DataCollator:
         
         Args:
             features: List of dictionaries with 'image' and 'text' keys
+                     'text' contains the target output sequence (e.g., "<OD>class_name<loc_y1>...")
             
         Returns:
             Dictionary with processed inputs ready for model
         """
-        # Extract images and texts
+        # Extract images and target texts
         images = [feature['image'] for feature in features]
-        texts = [feature['text'] for feature in features]
+        target_texts = [feature['text'] for feature in features]
         
-        # Process images and texts using the processor
-        # The processor handles tokenization, padding, and image preprocessing
+        # Process images with the input prompt "<OD>" (task token only)
+        # This avoids the AssertionError about task token being the only token
+        # The processor will handle image preprocessing and create pixel_values
+        input_prompts = ["<OD>"] * len(images)
+        
+        # Process images with input prompts to get pixel_values and other image-related tensors
         inputs = self.processor(
             images=images,
-            text=texts,
+            text=input_prompts,
             return_tensors="pt",
             padding=True
         )
         
-        # For training, we need to create labels from input_ids
-        # Florence-2 uses causal language modeling, so labels are the same as input_ids
-        # (the model handles shifting internally during forward pass)
+        # Now tokenize the target texts separately (bypassing processor's prompt construction)
+        # These are the full sequences we want the model to generate during training
+        tokenizer = self.processor.tokenizer
+        target_inputs = tokenizer(
+            target_texts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=512  # Adjust if needed based on your longest sequences
+        )
+        
+        # Replace input_ids with the tokenized target text
+        # The pixel_values from the processor are kept for image processing
+        inputs['input_ids'] = target_inputs['input_ids']
+        inputs['attention_mask'] = target_inputs['attention_mask']
+        
+        # Create labels from input_ids for causal language modeling
+        # The model will handle shifting internally during forward pass
         labels = inputs['input_ids'].clone()
         
         # Replace padding tokens with -100 to ignore them in loss calculation
-        pad_token_id = getattr(self.processor.tokenizer, 'pad_token_id', None)
+        pad_token_id = getattr(tokenizer, 'pad_token_id', None)
         if pad_token_id is not None:
             labels[labels == pad_token_id] = -100
         else:

@@ -163,22 +163,22 @@ main(config)
 
 ## Dataset Format for LoRA Training
 
-The pipeline automatically converts YOLO format to Florence-2 format for LoRA training. The final dataset used for training has the following structure:
+The pipeline automatically converts YOLO format to Florence-2 format for LoRA training. The data flows through several stages:
 
-### Dataset Structure
+### 1. Raw Dataset Format
 
-Each sample in the training dataset is a dictionary with two keys:
+Each sample in the raw dataset (before processing) is a dictionary with two keys:
 
 ```python
 {
-    'image': PIL.Image,  # PIL Image object
-    'text': str          # Florence-2 formatted prompt string
+    'image': PIL.Image,  # PIL Image object (RGB mode)
+    'text': str          # Full target output sequence string
 }
 ```
 
-### Text Format (Florence-2 Prompt)
+### 2. Text Format (Target Output Sequence)
 
-The `text` field contains a Florence-2 formatted prompt string for object detection:
+The `text` field contains the **target output sequence** that the model should generate:
 
 **Format**: `<OD>class_name<loc_y1><loc_x1><loc_y2><loc_x2>class_name<loc_y1><loc_x1><loc_y2><loc_x2>...`
 
@@ -195,6 +195,50 @@ The `text` field contains a Florence-2 formatted prompt string for object detect
   - `y2, x2`: Bottom-right corner coordinates
 
 **Multiple Objects**: For images with multiple objects, the format repeats: `class_name<loc_y1><loc_x1><loc_y2><loc_x2>` for each object.
+
+### 3. Data Collator Processing
+
+The `Florence2DataCollator` processes batches of raw samples and converts them to the format expected by Florence-2:
+
+**Processing Steps:**
+1. **Image Processing**: Images are processed with the Florence-2 processor using the input prompt `"<OD>"` only (task token without additional text)
+   - This creates `pixel_values` (processed image features)
+   - Avoids the AssertionError that would occur if the full target sequence were passed to the processor
+
+2. **Text Tokenization**: Target texts (full sequences) are tokenized separately using the tokenizer directly
+   - Bypasses the processor's prompt construction logic
+   - Creates `input_ids` and `attention_mask` tensors
+
+3. **Label Creation**: Labels are created from `input_ids` for causal language modeling
+   - Padding tokens are masked (set to -100) to ignore them in loss calculation
+
+### 4. Final Format Passed to Florence-2 Model
+
+The data collator returns a dictionary with PyTorch tensors ready for training:
+
+```python
+{
+    'pixel_values': torch.Tensor,      # Shape: [batch_size, channels, height, width]
+                                       # Processed image features from processor
+                                       # Created using input prompt: "<OD>" only
+    
+    'input_ids': torch.Tensor,         # Shape: [batch_size, sequence_length]
+                                       # Tokenized target sequences
+                                       # Contains full sequence: <OD>class_name<loc_...>
+    
+    'attention_mask': torch.Tensor,    # Shape: [batch_size, sequence_length]
+                                       # Attention mask for the sequences
+    
+    'labels': torch.Tensor             # Shape: [batch_size, sequence_length]
+                                       # Same as input_ids, with padding tokens set to -100
+}
+```
+
+**Key Points:**
+- **Images** are processed with the task token `"<OD>"` only (as required by Florence-2 processor)
+- **Target sequences** (full text with class names and locations) are tokenized separately
+- The model learns to generate the full target sequence given the image and task token
+- This approach avoids the `AssertionError: Task token <OD> should be the only token in the text` error
 
 ### Image Format
 
@@ -314,10 +358,19 @@ For limited VRAM scenarios:
 
 ## Troubleshooting
 
+### AssertionError: Task token <OD> should be the only token in the text
+
+**This error has been fixed** in the current implementation. The data collator now:
+- Processes images with the prompt `"<OD>"` only (as required by Florence-2)
+- Tokenizes target sequences separately (bypassing the processor's prompt construction)
+
+If you encounter this error, ensure you're using the latest version of `train.py` with the updated `Florence2DataCollator`.
+
 ### Out of Memory Errors
 - Reduce `per_device_train_batch_size`
 - Enable `freeze_vision_tower=True`
 - Reduce LoRA rank `r`
+- Reduce `max_length` in the data collator (default: 512) if your sequences are shorter
 
 ### Dataset Not Found
 - Verify `data_yaml_path` points to correct YOLO data.yaml
@@ -326,6 +379,10 @@ For limited VRAM scenarios:
 ### Model Loading Issues
 - Ensure model is downloaded to `model_path`
 - Verify `trust_remote_code=True` is set (handled automatically)
+
+### Sequence Length Issues
+- If you get errors about sequence length, adjust the `max_length` parameter in `Florence2DataCollator.__call__()` in `train.py`
+- Default is 512 tokens, which should be sufficient for most object detection tasks
 
 ## License
 
