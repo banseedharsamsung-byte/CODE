@@ -315,17 +315,42 @@ def main(config: TrainingConfig):
         target_modules=config.lora.target_modules
     )
     
-    # Create datasets (with detailed logging)
-    train_dataset, val_dataset = create_dataset(
-        config.data_yaml_path,
-        validation_split=config.validation_split,
-        seed=config.seed,
-        show_progress=True,
-        save_visualizations=config.save_visualizations,
-        num_visualization_samples=config.num_visualization_samples,
-        visualization_output_dir=config.visualization_output_dir or config.output_dir,
-        num_preprocessing_workers=config.num_preprocessing_workers,
-    )
+    # Create or load datasets (with detailed logging)
+    from datasets import load_from_disk
+
+    if config.load_converted_dataset:
+        # Load pre-converted Florence-format datasets from disk
+        base_dir = config.converted_dataset_dir or os.path.join(
+            os.path.dirname(config.data_yaml_path),
+            "converted_florence_dataset",
+        )
+        train_path = os.path.join(base_dir, "train")
+        val_path = os.path.join(base_dir, "val")
+
+        logger.info(f"Loading converted datasets from: {base_dir}")
+        train_dataset = load_from_disk(train_path)
+        logger.info(f"  ✓ Loaded train dataset from {train_path}: {len(train_dataset)} samples")
+
+        if os.path.exists(val_path):
+            val_dataset = load_from_disk(val_path)
+            logger.info(f"  ✓ Loaded validation dataset from {val_path}: {len(val_dataset)} samples")
+        else:
+            logger.info("  (No validation dataset directory found; proceeding without val dataset)")
+            val_dataset = None
+    else:
+        # Run YOLO -> Florence conversion and optionally save converted datasets to disk
+        train_dataset, val_dataset = create_dataset(
+            config.data_yaml_path,
+            validation_split=config.validation_split,
+            seed=config.seed,
+            show_progress=True,
+            save_visualizations=config.save_visualizations,
+            num_visualization_samples=config.num_visualization_samples,
+            visualization_output_dir=config.visualization_output_dir or config.output_dir,
+            num_preprocessing_workers=config.num_preprocessing_workers,
+            save_converted_dataset=config.save_converted_dataset,
+            converted_dataset_dir=config.converted_dataset_dir,
+        )
     
     # Print sample dataset entries for verification
     print_dataset_samples(train_dataset, num_samples=10, split_name="training")

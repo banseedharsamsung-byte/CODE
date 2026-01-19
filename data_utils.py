@@ -1,7 +1,9 @@
 """
 Data utilities for converting YOLO format to Florence-2 format.
-Implements on-the-fly dataset generation without intermediate file conversion.
+Implements on-the-fly dataset generation and optional saving of the converted
+datasets to disk for later reuse.
 """
+import os
 import yaml
 from pathlib import Path
 from typing import Dict, Iterator, Tuple, List, Optional, Union
@@ -485,20 +487,23 @@ def yolo_to_florence_generator(
                     img_width, img_height = image.size
                 except Exception as e:
                     logger.warning(f"Failed to load image {image_path}: {e}")
-                    return None
+                    return None, None, 'error'
                 
                 label_file = labels_root / f"{image_path.stem}.txt"
                 annotations = parse_yolo_label(label_file)
                 if not annotations:
-                    return None
+                    return None, None, 'no_labels'
                 
                 prompt = generate_florence_prompt(
                     annotations, class_map, img_width, img_height
                 )
-                return {
+                result = {
                     'image': image,
                     'text': prompt,
                 }
+                # Return annotations info for statistics tracking
+                annotation_info = [(ann[0],) for ann in annotations]  # Extract class_ids
+                return result, annotation_info, 'success'
 
             args_iter = (
                 (img_path, labels_path, class_id_to_name)
@@ -515,11 +520,21 @@ def yolo_to_florence_generator(
                     disable=not show_progress,
                 ) if show_progress else results_iter
 
-                for result in wrapped_iter:
-                    if result is None:
+                for result, annotation_info, status in wrapped_iter:
+                    if status == 'error':
+                        skipped_errors += 1
                         continue
-                    # NOTE: For simplicity, detailed per-class stats are not
-                    # maintained in multi-worker mode.
+                    elif status == 'no_labels':
+                        skipped_no_labels += 1
+                        continue
+                    
+                    # Update statistics
+                    if annotation_info:
+                        for class_id_tuple in annotation_info:
+                            class_id = class_id_tuple[0]
+                            class_counts[class_id] += 1
+                            total_annotations += 1
+                    
                     total_images += 1
                     yield result
     
@@ -675,6 +690,8 @@ def create_dataset(
     num_visualization_samples: int = 10,
     visualization_output_dir: Optional[str] = None,
     num_preprocessing_workers: int = 0,
+    save_converted_dataset: bool = False,
+    converted_dataset_dir: Optional[str] = None,
 ) -> Tuple[Dataset, Dataset]:
     """
     Create Hugging Face datasets for training and validation.
@@ -688,6 +705,9 @@ def create_dataset(
         num_visualization_samples: Number of samples to visualize (per split)
         visualization_output_dir: Directory to save visualizations (defaults to output_dir)
         num_preprocessing_workers: Number of parallel workers for data preprocessing (0/1 = no parallelism)
+        save_converted_dataset: If True, save the converted Hugging Face Datasets to disk
+        converted_dataset_dir: Base directory to save converted datasets (train/ and val/ subdirs). If None,
+                               defaults to `<dirname(data_yaml_path)>/converted_florence_dataset`.
         
     Returns:
         Tuple of (train_dataset, val_dataset)
@@ -749,6 +769,28 @@ def create_dataset(
     else:
         logger.info(f"  Total samples: {len(train_dataset)}")
     logger.info("="*60 + "\n")
+    
+    # Optionally save the converted datasets to disk for later reuse
+    if save_converted_dataset:
+        base_dir = converted_dataset_dir
+        if base_dir is None:
+            base_dir = str(Path(data_yaml_path).parent / "converted_florence_dataset")
+        base_dir_path = Path(base_dir)
+        train_out = base_dir_path / "train"
+        val_out = base_dir_path / "val"
+
+        logger.info(f"Saving converted datasets to disk at: {base_dir_path}")
+        train_out.parent.mkdir(parents=True, exist_ok=True)
+
+        train_dataset.save_to_disk(str(train_out))
+        logger.info(f"  ✓ Saved train dataset to: {train_out} ({len(train_dataset)} samples)")
+
+        if val_dataset is not None:
+            val_out.parent.mkdir(parents=True, exist_ok=True)
+            val_dataset.save_to_disk(str(val_out))
+            logger.info(f"  ✓ Saved validation dataset to: {val_out} ({len(val_dataset)} samples)")
+        else:
+            logger.info("  (No validation dataset to save)")
     
     # Save visualization samples if requested
     if save_visualizations:

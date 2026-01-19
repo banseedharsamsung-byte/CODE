@@ -288,6 +288,37 @@ Training outputs are saved to the `output_dir` specified in config:
   - Both should overlap if conversion is correct
   - Default: 10 samples per split (train/val)
 
+## Saving and Reusing Converted Datasets (Intermediate Florence-Format)
+
+For large datasets, repeatedly running the YOLO → Florence conversion can be slow. The pipeline can **save the converted Hugging Face Datasets to disk** and later **load them directly** to start training without reprocessing.
+
+### Enable Saving of Converted Datasets
+
+In `config.py`, set:
+
+```python
+from config import TrainingConfig
+
+config = TrainingConfig(
+    # ...
+    save_converted_dataset=True,
+    converted_dataset_dir="./converted_florence_dataset",  # optional, see below
+)
+```
+
+- **`save_converted_dataset=True`**:
+  - After preprocessing, the pipeline saves:
+    - Train dataset: `converted_dataset_dir/train/`
+    - Val dataset: `converted_dataset_dir/val/` (if available)
+- **`converted_dataset_dir`** (optional):
+  - If not set, it defaults to:
+    - `<directory_of_data_yaml>/converted_florence_dataset`
+
+The first run will:
+- Convert YOLO → Florence
+- Save `Dataset` objects to disk
+- (Optionally) generate visualizations
+
 ## Multi-GPU Training
 
 The pipeline supports two multi-GPU strategies:
@@ -383,6 +414,13 @@ If you encounter this error, ensure you're using the latest version of `train.py
 ### Sequence Length Issues
 - If you get errors about sequence length, adjust the `max_length` parameter in `Florence2DataCollator.__call__()` in `train.py`
 - Default is 512 tokens, which should be sufficient for most object detection tasks
+
+### Converted Dataset Save/Load Issues
+- If `load_converted_dataset=True` but the directory does not exist:
+  - Ensure `converted_dataset_dir` points to the correct path
+  - Check that `train/` and (optionally) `val/` subdirectories exist (created by `Dataset.save_to_disk`)
+- If you change `data.yaml` or YOLO labels:
+  - Re-run preprocessing with `save_converted_dataset=True` to regenerate the converted datasets
 
 ## License
 

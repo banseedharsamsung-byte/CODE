@@ -80,6 +80,13 @@ class TrainingConfig:
     save_visualizations: bool = True  # Save visualization samples after dataset creation
     num_visualization_samples: int = 10  # Number of samples to visualize per split
     visualization_output_dir: Optional[str] = None  # Directory for visualizations (defaults to output_dir)
+
+    # Intermediate converted dataset (Florence-format) settings
+    # If enabled, the YOLO -> Florence converted Dataset objects can be saved to disk
+    # and later re-used directly without re-running preprocessing.
+    save_converted_dataset: bool = False  # Save converted Hugging Face Datasets to disk
+    converted_dataset_dir: Optional[str] = None  # Base directory to save/load converted datasets
+    load_converted_dataset: bool = False  # If True, load train/val datasets from converted_dataset_dir instead of regenerating
     
     def __post_init__(self):
         """Initialize LoRA config if not provided."""
