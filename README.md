@@ -422,6 +422,78 @@ If you encounter this error, ensure you're using the latest version of `train.py
 - If you change `data.yaml` or YOLO labels:
   - Re-run preprocessing with `save_converted_dataset=True` to regenerate the converted datasets
 
+## Inference
+
+After fine-tuning, you can use the `inference.py` script to run object detection on new images.
+
+### Basic Usage
+
+**Single image:**
+```bash
+python inference.py \
+    --base_model_path ./models/florence-2-large \
+    --lora_model_path ./outputs/custom_run \
+    --image_path path/to/image.jpg \
+    --output_dir ./inference_outputs
+```
+
+**Directory of images:**
+```bash
+python inference.py \
+    --base_model_path ./models/florence-2-large \
+    --lora_model_path ./outputs/custom_run \
+    --image_dir path/to/images/ \
+    --output_dir ./inference_outputs
+```
+
+### Arguments
+
+- `--base_model_path`: Path to base Florence-2 model directory (required)
+- `--lora_model_path`: Path to LoRA fine-tuned checkpoint directory (required)
+- `--image_path`: Path to single image file (use with `--image_dir` for batch processing)
+- `--image_dir`: Path to directory containing images (use with `--image_path` for single image)
+- `--output_dir`: Directory to save output visualizations (default: `./inference_outputs`)
+- `--max_new_tokens`: Maximum number of tokens to generate (default: 512)
+- `--device`: Device to run inference on - `cuda` or `cpu` (default: auto-detect)
+
+### Output
+
+The script will:
+1. **Print detection results** to console:
+   - Generated text output from model
+   - Parsed detections with class names and coordinates
+   - Both Florence-2 coordinates (0-999) and pixel coordinates
+
+2. **Save visualizations** to `--output_dir`:
+   - Images with bounding boxes drawn
+   - Class labels on each bounding box
+   - Filename format: `{original_name}_detections.png`
+
+### Example Output
+
+```
+================================================================================
+Processing: test_image.jpg
+================================================================================
+
+Generated output:
+<OD>Subscription<loc_100><loc_200><loc_300><loc_400>Sign-in<loc_150><loc_250><loc_350><loc_450>
+
+Found 2 detection(s):
+  1. Subscription: (100, 200, 300, 400) [Florence-2 coords]
+  2. Sign-in: (150, 250, 350, 450) [Florence-2 coords]
+  Subscription: (123, 245, 369, 491) [pixel coords]
+  Sign-in: (185, 306, 432, 553) [pixel coords]
+✓ Saved visualization to: ./inference_outputs/test_image_detections.png
+```
+
+### Notes
+
+- The script automatically merges LoRA weights into the base model for inference
+- Images are processed with the `<OD>` task token (as during training)
+- Output format matches the training format: `<OD>class_name<loc_y1><loc_x1><loc_y2><loc_x2>...`
+- Coordinates are automatically converted from Florence-2 format (0-999) to pixel coordinates for visualization
+
 ## License
 
 This code is provided as-is for fine-tuning Florence-2 models. Please refer to Microsoft's Florence-2 license for model usage terms.
