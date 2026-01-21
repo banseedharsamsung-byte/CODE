@@ -67,23 +67,20 @@ def florence_to_pixel_coords(
     img_width: int, img_height: int
 ) -> Tuple[int, int, int, int]:
     """
-    Convert Florence-2 coordinates (0-999 range) to pixel coordinates.
-    
-    Args:
-        y1, x1, y2, x2: Florence-2 coordinates (0-999)
-        img_width: Image width in pixels
-        img_height: Image height in pixels
-        
-    Returns:
-        Tuple of (x1, y1, x2, y2) in pixel coordinates
+    Convert Florence-2 coordinates (0-999 range, y1, x1, y2, x2) to pixel coordinates.
+    This mirrors the conversion used during training.
     """
+    # Ensure correct ordering in case the model predicts inverted corners
+    y1_f, y2_f = sorted([y1, y2])
+    x1_f, x2_f = sorted([x1, x2])
+
     scale_x = img_width / 999.0
     scale_y = img_height / 999.0
     
-    x1_pixel = int(round(x1 * scale_x))
-    y1_pixel = int(round(y1 * scale_y))
-    x2_pixel = int(round(x2 * scale_x))
-    y2_pixel = int(round(y2 * scale_y))
+    x1_pixel = int(round(x1_f * scale_x))
+    y1_pixel = int(round(y1_f * scale_y))
+    x2_pixel = int(round(x2_f * scale_x))
+    y2_pixel = int(round(y2_f * scale_y))
     
     # Ensure coordinates are within image bounds
     x1_pixel = max(0, min(x1_pixel, img_width - 1))
@@ -114,9 +111,9 @@ def draw_bboxes(
     vis_image = image.copy()
     draw = ImageDraw.Draw(vis_image)
     
-    # Try to load a font, fallback to default if not available
+    # Try to load a larger font, fallback to default if not available
     try:
-        font = ImageFont.truetype("arial.ttf", 16)
+        font = ImageFont.truetype("arial.ttf", 24)
     except:
         try:
             font = ImageFont.load_default()
@@ -129,8 +126,8 @@ def draw_bboxes(
     for idx, (class_name, x1, y1, x2, y2) in enumerate(detections):
         color = colors[idx % len(colors)]
         
-        # Draw rectangle
-        draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+        # Draw rectangle (thicker for better visibility)
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=5)
         
         # Draw label background
         if font:
@@ -138,17 +135,18 @@ def draw_bboxes(
             text_width = bbox[2] - bbox[0]
             text_height = bbox[3] - bbox[1]
         else:
-            text_width = len(class_name) * 8
-            text_height = 16
+            text_width = len(class_name) * 10
+            text_height = 20
         
-        # Draw label background rectangle
-        label_y = max(0, y1 - text_height - 4)
+        # Draw label background rectangle with extra padding
+        padding = 6
+        label_y = max(0, y1 - text_height - 2 * padding)
         draw.rectangle(
-            [x1, label_y, x1 + text_width + 8, y1],
+            [x1, label_y, x1 + text_width + 2 * padding, y1],
             fill=color
         )
         draw.text(
-            (x1 + 4, label_y),
+            (x1 + padding, label_y),
             class_name,
             fill="white",
             font=font
