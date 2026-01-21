@@ -255,13 +255,17 @@ def inference_single_image(
             num_beams=1,
         )
     
-    # Decode generated text
-    generated_text = processor.batch_decode(
+    # Decode generated text (keep both raw and cleaned for debugging/parsing)
+    generated_text_raw = processor.batch_decode(
+        generated_ids,
+        skip_special_tokens=False
+    )[0]
+    generated_text_clean = processor.batch_decode(
         generated_ids,
         skip_special_tokens=True
     )[0]
     
-    return generated_text
+    return generated_text_raw, generated_text_clean
 
 
 def main():
@@ -352,7 +356,7 @@ def main():
         
         try:
             # Run inference
-            generated_text = inference_single_image(
+            generated_text_raw, generated_text_clean = inference_single_image(
                 model,
                 processor,
                 str(img_path),
@@ -360,11 +364,16 @@ def main():
                 max_new_tokens=args.max_new_tokens
             )
             
-            logger.info(f"\nGenerated output:")
-            logger.info(f"{generated_text}\n")
+            logger.info(f"\nGenerated output (raw, no skipping special tokens):")
+            logger.info(f"{generated_text_raw}\n")
+            logger.info(f"Generated output (clean, skip_special_tokens=True):")
+            logger.info(f"{generated_text_clean}\n")
             
             # Parse detections
-            detections_florence = parse_florence_output(generated_text)
+            detections_florence = parse_florence_output(generated_text_raw)
+            if not detections_florence:
+                # Fallback: try parsing the cleaned text
+                detections_florence = parse_florence_output(generated_text_clean)
             
             if not detections_florence:
                 logger.warning("No detections found in output")
