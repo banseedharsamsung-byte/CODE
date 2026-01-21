@@ -237,8 +237,14 @@ def inference_single_image(
         padding=True
     )
     
-    # Move inputs to device
-    inputs = {k: v.to(device) for k, v in inputs.items()}
+    # Move inputs to device and align pixel dtype with model dtype (avoid float32 vs float16 mismatch)
+    model_dtype = next(model.parameters()).dtype
+    inputs = {
+        k: (
+            v.to(device).to(model_dtype) if k == "pixel_values" else v.to(device)
+        )
+        for k, v in inputs.items()
+    }
     
     # Generate
     with torch.no_grad():
